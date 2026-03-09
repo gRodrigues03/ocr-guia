@@ -221,6 +221,7 @@ def escolher_pasta():
                         over_date = f"{date.group(1)}-{date.group(2)}-{date.group(3)}"
                     else:
                         over_date = mes_selecionado
+                    break
         except:
             over_date = mes_selecionado
         return Path(pasta)
