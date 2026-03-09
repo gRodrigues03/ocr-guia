@@ -7,7 +7,8 @@ from io import BytesIO
 from pathlib import Path
 
 import fitz
-from PIL import Image, ImageEnhance
+import numpy as np
+from PIL import Image
 from rapidocr_onnxruntime import RapidOCR
 
 from watchdog.observers import Observer
@@ -66,19 +67,16 @@ def extrair_guia(pdf_path):
         doc = fitz.open(pdf_path)
         page = doc[0]
 
-        pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
-
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-        largura, altura = img.size
+        rect = page.rect
 
         if (len(over_date) == 7 and over_date >= '2025-08') or (len(over_date) > 7 and over_date >= '2025-08-01'):
-            img = img.crop((0, 0, largura, int(altura * 0.4)))
+            clip = fitz.Rect(0, 0, rect.width, rect.height*0.4)
         else:
-            img = img.crop(((largura*0.5), 0, largura, int(altura * 0.3)))
+            clip = fitz.Rect(rect.width*0.5, 0, rect.width, rect.height * 0.3)
 
-        img = img.convert("L")
-        img = ImageEnhance.Contrast(img).enhance(1.25)
+        pix = page.get_pixmap(matrix=fitz.Matrix(200 / 72, 200 / 72), clip=clip, colorspace=fitz.csGRAY)
+
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
 
         resultado, _ = ocr(img)
 
