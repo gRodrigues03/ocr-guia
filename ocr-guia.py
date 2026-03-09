@@ -42,11 +42,14 @@ def consultar_api(id_, mes):
 
 regex_guia = re.compile(r"\d{5,6}", re.IGNORECASE | re.DOTALL)
 
+regex_data = re.compile(r'\\(\d{4})\\(\d{2})\s*-.*?\\(\d{2})\\')
+
 ocr = RapidOCR()
 
 observer = None
 pasta_atual = None
 mes_selecionado = datetime.now().strftime("%Y-%m")
+over_date = datetime.now().strftime("%Y-%m")
 
 fila = queue.Queue()
 
@@ -69,7 +72,7 @@ def extrair_guia(pdf_path):
 
         largura, altura = img.size
 
-        if mes_selecionado >= '2025-08':
+        if over_date >= '2025-08':
             img = img.crop((largura, 0, largura, int(altura * 0.4)))
         else:
             img = img.crop(((largura*0.5), 0, largura, int(altura * 0.3)))
@@ -85,7 +88,7 @@ def extrair_guia(pdf_path):
 
         if match:
             for m in match:
-                text = consultar_api(m, mes_selecionado)
+                text = consultar_api(m, over_date)
                 if text and len(text):
                     return text.split(',')[0], texto
 
@@ -204,10 +207,22 @@ def iniciar_observer():
 # ---------------- PASTA ----------------
 
 def escolher_pasta():
+    global over_date
 
     pasta = filedialog.askdirectory(parent=root)
 
     if pasta:
+        try:
+            tmp_path = str(pasta)
+            for i in ('GLORIA', 'PONTE', 'GARDEL'):
+                if i in tmp_path:
+                    date = regex_data.search(tmp_path)
+                    if date:
+                        over_date = f"{date.group(1)}-{date.group(2)}-{date.group(3)}"
+                    else:
+                        over_date = mes_selecionado
+        except:
+            over_date = mes_selecionado
         return Path(pasta)
 
     return None
@@ -306,13 +321,9 @@ def iniciar_tray():
 def main():
 
     global pasta_atual
-    global mes_selecionado
 
     pasta_atual = escolher_pasta()
-    mes = escolher_mes()
-    if mes:
-        mes_selecionado = mes
-
+    escolher_mes()
 
     if not pasta_atual:
         return
