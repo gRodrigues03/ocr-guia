@@ -163,9 +163,11 @@ class Handler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        if event.src_path.lower().endswith(".pdf"):
+        path = Path(event.src_path)
 
-            fila.put(Path(event.src_path))
+        if path.suffix.lower() == ".pdf" and not path.name[0].isdigit():
+
+            fila.put(path)
 
 
 def iniciar_observer():
@@ -176,22 +178,21 @@ def iniciar_observer():
         return
 
     if observer:
-
         observer.stop()
         observer.join()
 
     handler = Handler()
 
     observer = Observer()
-
     observer.schedule(handler, str(pasta_atual), recursive=False)
-
     observer.start()
 
     print("Observando:", pasta_atual)
 
     for pdf in pasta_atual.glob("*.pdf"):
-        fila.put(pdf)
+
+        if not pdf.name[0].isdigit():
+            fila.put(pdf)
 
 
 # ---------------- PASTA ----------------
@@ -256,6 +257,8 @@ def alterar_pasta(icon, item):
             return
 
         pasta_atual = nova
+
+        fila = queue.Queue()
 
         iniciar_observer()
 
