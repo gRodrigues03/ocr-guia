@@ -22,7 +22,7 @@ from datetime import datetime
 import requests
 
 def consultar_api(id_, mes):
-    url = f"http://148.1.1.38:6969/nguia?id={id_}&mes={mes}"
+    url = f"http://148.1.1.11:6969/nguia?id={id_}&mes={mes}"
 
     r = requests.get(url, timeout=10)
     r.raise_for_status()  # levanta erro se não for 200

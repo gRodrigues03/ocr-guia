@@ -1,0 +1,1 @@
+pyinstaller --noconsole --collect-data rapidocr_onnxruntime main.py
