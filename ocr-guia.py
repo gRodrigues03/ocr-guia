@@ -45,9 +45,9 @@ def consultar_api(id_, mes):
 
 regex_guia = re.compile(r"\d{5,6}", re.IGNORECASE | re.DOTALL)
 
-regex_data = re.compile(r'\\(\d{4})\\(\d{2})\s*-.*?\\(\d{2})\\')
+regex_data = re.compile(r'[\\/](\d{4})[\\/](\d{2})\s*-.*?[\\/](\d{2})')
 
-ocr = RapidOCR()
+ocr = RapidOCR(use_cls=False)
 
 observer = None
 pasta_atual = None
