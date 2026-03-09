@@ -63,7 +63,10 @@ def extrair_guia(pdf_path):
 
         largura, altura = img.size
 
-        img = img.crop(((largura*0.5), 0, largura, int(altura * 0.3)))
+        if mes_selecionado >= '2025-08':
+            img = img.crop((largura, 0, largura, int(altura * 0.4)))
+        else:
+            img = img.crop(((largura*0.5), 0, largura, int(altura * 0.3)))
 
         img = img.convert("L")
         img = ImageEnhance.Contrast(img).enhance(1.25)
