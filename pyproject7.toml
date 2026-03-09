@@ -1,0 +1,16 @@
+[project]
+name = "ocr-guia"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "pillow<=10.4.0",
+    "pyinstaller<=5.13.2",
+    "pymupdf<=1.23.26",
+    "pystray<=0.19.5",
+    "rapidocr-onnxruntime<=1.4.4",
+    "onnxruntime<=1.19.2",
+    "requests<=2.32.5",
+    "watchdog<=3.0.0"
+]
