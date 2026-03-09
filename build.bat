@@ -1,1 +1,1 @@
-pyinstaller --noconsole --collect-data rapidocr_onnxruntime main.py
+pyinstaller --noconsole --collect-data rapidocr_onnxruntime ocr-guia.py
