@@ -72,8 +72,8 @@ def extrair_guia(pdf_path):
 
         largura, altura = img.size
 
-        if over_date >= '2025-08':
-            img = img.crop((largura, 0, largura, int(altura * 0.4)))
+        if (len(over_date) == 7 and over_date >= '2025-08') or (len(over_date) > 7 and over_date >= '2025-08-01'):
+            img = img.crop((0, 0, largura, int(altura * 0.4)))
         else:
             img = img.crop(((largura*0.5), 0, largura, int(altura * 0.3)))
 
@@ -231,6 +231,8 @@ def escolher_pasta():
 # ---------------- MENU ----------------
 
 def escolher_mes():
+    global mes_selecionado
+    global over_date
 
     janela = tk.Toplevel(root)
     janela.title("Selecionar mês")
@@ -260,7 +262,9 @@ def escolher_mes():
     janela.grab_set()
     janela.wait_window()
 
-    return resultado["valor"]
+    if len(over_date) == 7:
+        over_date = resultado["valor"]
+    mes_selecionado = resultado["valor"]
 
 def alterar_mes(icon, item):
 
@@ -322,8 +326,8 @@ def main():
 
     global pasta_atual
 
-    pasta_atual = escolher_pasta()
     escolher_mes()
+    pasta_atual = escolher_pasta()
 
     if not pasta_atual:
         return
