@@ -2,10 +2,16 @@ import os
 import sys
 import shutil
 import subprocess
+import ctypes
 from pathlib import Path
 from dulwich import porcelain
-from dulwich.repo import Repo
-from dulwich.index import build_index_from_tree
+
+def acquire_lock():
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "MyBootstrapMutex")
+
+    if ctypes.windll.kernel32.GetLastError() == 183:
+        print("[BOOTSTRAP] Another instance is already running.")
+        sys.exit(0)
 
 PROJECT_NAME = "ocr-guia"
 REPO_URL = b"https://github.com/gRodrigues03/ocr-guia.git"
@@ -23,7 +29,7 @@ LOCAL_PATH = BASE_DIR / PROJECT_NAME
 VENV_PATH = BASE_DIR / "venv"
 
 if os.name == "nt":
-    VENV_PYTHON = VENV_PATH / "Scripts" / "python.exe"
+    VENV_PYTHON = VENV_PATH / "Scripts" / "pythonw.exe"
 else:
     VENV_PYTHON = VENV_PATH / "bin" / "python"
 
@@ -66,7 +72,7 @@ def ensure_venv():
 
     print("[BOOTSTRAP] Creating virtual environment...")
 
-    subprocess.check_call([
+    subprocess.Popen([
         python,
         "-m",
         "venv",
@@ -76,7 +82,7 @@ def ensure_venv():
 
 def install_packages():
 
-    subprocess.check_call([
+    subprocess.Popen([
         str(VENV_PYTHON),
         "-m",
         "ensurepip",
@@ -85,13 +91,13 @@ def install_packages():
 
     print("[BOOTSTRAP] Installing")
 
-    subprocess.check_call([
+    subprocess.Popen([
         str(VENV_PYTHON),
         "-c",
         "import sys; print(sys.version)"
     ])
 
-    subprocess.check_call([
+    subprocess.Popen([
         str(VENV_PYTHON),
         "-m",
         "pip",
@@ -130,7 +136,7 @@ def launch_app():
         print("[BOOTSTRAP] ERROR: ocr-guia.py missing")
         sys.exit(1)
 
-    subprocess.check_call([
+    subprocess.Popen([
         str(VENV_PYTHON),
         str(main_script)
     ])
@@ -141,6 +147,7 @@ def main():
     print("[BOOTSTRAP] Base directory:", BASE_DIR)
     print(sys.version)
 
+    acquire_lock()
     ensure_venv()
     update_repo()
     install_packages()
