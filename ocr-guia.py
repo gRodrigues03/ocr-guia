@@ -48,7 +48,7 @@ def get_threads():
     if threads_file.exists():
         try:
             thread_count = int(threads_file.read_text().strip())
-            return thread_count if 0 < thread_count < 12 else 12
+            return 12 if thread_count > 12 else thread_count if thread_count > 0 else 2
         except Exception:
             return 2
 
@@ -93,9 +93,13 @@ def extrair_guia(pdf_path):
         else:
             clip = fitz.Rect(rect.width*0.55, 0, rect.width, rect.height * 0.28)
 
-        pix = page.get_pixmap(matrix=fitz.Matrix(195 / 72, 195 / 72), clip=clip, colorspace=fitz.csGRAY)
+        pix = fitz.Pixmap(doc, page.get_images()[0][0])
 
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
+        scale = pix.width / rect.width
+
+        x0, y0, x1, y1 = (clip * scale)
+
+        img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width)[int(y0):int(y1), int(x0):int(x1)]
 
         resultado, _ = ocr(img)
 
