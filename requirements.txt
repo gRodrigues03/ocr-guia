@@ -4,4 +4,3 @@ pystray
 rapidocr-onnxruntime
 requests
 watchdog
-dulwich

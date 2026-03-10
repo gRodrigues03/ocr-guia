@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from dulwich import porcelain
 from dulwich.repo import Repo
+from dulwich.index import build_index_from_tree
 
 PROJECT_NAME = "ocr-guia"
 REPO_URL = b"https://github.com/gRodrigues03/ocr-guia.git"
@@ -121,23 +122,12 @@ def update_repo():
         porcelain.clone(REPO_URL, str(LOCAL_PATH))
         return
 
-    print("[BOOTSTRAP] Fetching updates...")
+    print("[BOOTSTRAP] Re-cloning repository...")
 
     try:
-        repo = Repo(str(LOCAL_PATH))
-
-        # fetch updates from origin
-        porcelain.fetch(repo, REPO_URL)
-
-        # determine current branch
-        head_ref = repo.refs.read_ref(b"HEAD")
-        branch = head_ref.split(b"/")[-1]
-
-        remote_ref = b"refs/remotes/origin/" + branch
-
-        print(f"[BOOTSTRAP] Resetting to origin/{branch.decode()}")
-
-        porcelain.reset(repo, mode="hard", treeish=remote_ref)
+        shutil.rmtree(LOCAL_PATH)
+        porcelain.clone(REPO_URL, str(LOCAL_PATH))
+        print("[BOOTSTRAP] Update complete")
 
     except Exception as e:
         print("[BOOTSTRAP] Update failed:", e)
