@@ -6,15 +6,25 @@ import ctypes
 from pathlib import Path
 from dulwich import porcelain
 
-def acquire_lock():
-    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "MyBootstrapMutex")
-
-    if ctypes.windll.kernel32.GetLastError() == 183:
-        print("[BOOTSTRAP] Another instance is already running.")
-        sys.exit(0)
-
 PROJECT_NAME = "ocr-guia"
 REPO_URL = b"https://github.com/gRodrigues03/ocr-guia.git"
+
+# Keep mutex global so it isn't garbage collected
+BOOTSTRAP_MUTEX = None
+
+FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+def run_hidden(cmd):
+    subprocess.check_call(cmd, creationflags=FLAGS)
+
+
+def acquire_lock():
+    global BOOTSTRAP_MUTEX
+    BOOTSTRAP_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "MyBootstrapMutex")
+
+    if ctypes.windll.kernel32.GetLastError() == 183:
+        sys.exit(0)
 
 
 def get_base_dir():
@@ -29,25 +39,25 @@ LOCAL_PATH = BASE_DIR / PROJECT_NAME
 VENV_PATH = BASE_DIR / "venv"
 
 if os.name == "nt":
-    VENV_PYTHON = VENV_PATH / "Scripts" / "pythonw.exe"
+    VENV_PYTHON = VENV_PATH / "Scripts" / "python.exe"
+    VENV_PYTHONW = VENV_PATH / "Scripts" / "pythonw.exe"
 else:
     VENV_PYTHON = VENV_PATH / "bin" / "python"
+    VENV_PYTHONW = VENV_PATH / "bin" / "python"
 
 
 def find_system_python():
-    """
-    Find a real Python interpreter to create the venv.
-    """
 
-    candidates = [
-        "python3",
-        "python",
-        "py"
-    ]
+    candidates = ["py", "python3", "python"]
 
     for c in candidates:
         try:
-            subprocess.check_output([c, "--version"])
+            subprocess.check_call(
+                [c, "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=FLAGS
+            )
             return c
         except Exception:
             pass
@@ -58,7 +68,6 @@ def find_system_python():
 def ensure_venv():
 
     if VENV_PYTHON.exists():
-        print("[BOOTSTRAP] Virtual environment exists")
         return
 
     if VENV_PATH.exists():
@@ -67,12 +76,9 @@ def ensure_venv():
     python = find_system_python()
 
     if not python:
-        print("[BOOTSTRAP] ERROR: No Python interpreter found to create venv")
         sys.exit(1)
 
-    print("[BOOTSTRAP] Creating virtual environment...")
-
-    subprocess.Popen([
+    run_hidden([
         python,
         "-m",
         "venv",
@@ -80,24 +86,29 @@ def ensure_venv():
     ])
 
 
+def update_repo():
+
+    if not LOCAL_PATH.exists():
+        porcelain.clone(REPO_URL, str(LOCAL_PATH))
+        return
+
+    try:
+        shutil.rmtree(LOCAL_PATH)
+        porcelain.clone(REPO_URL, str(LOCAL_PATH))
+    except Exception:
+        pass
+
+
 def install_packages():
 
-    subprocess.Popen([
+    run_hidden([
         str(VENV_PYTHON),
         "-m",
         "ensurepip",
         "--upgrade"
     ])
 
-    print("[BOOTSTRAP] Installing")
-
-    subprocess.Popen([
-        str(VENV_PYTHON),
-        "-c",
-        "import sys; print(sys.version)"
-    ])
-
-    subprocess.Popen([
+    run_hidden([
         str(VENV_PYTHON),
         "-m",
         "pip",
@@ -110,44 +121,23 @@ def install_packages():
     ])
 
 
-def update_repo():
-
-    if not LOCAL_PATH.exists():
-        print("[BOOTSTRAP] Cloning project...")
-        porcelain.clone(REPO_URL, str(LOCAL_PATH))
-        return
-
-    print("[BOOTSTRAP] Re-cloning repository...")
-
-    try:
-        shutil.rmtree(LOCAL_PATH)
-        porcelain.clone(REPO_URL, str(LOCAL_PATH))
-        print("[BOOTSTRAP] Update complete")
-
-    except Exception as e:
-        print("[BOOTSTRAP] Update failed:", e)
-
-
 def launch_app():
 
     main_script = LOCAL_PATH / "ocr-guia.py"
 
     if not main_script.exists():
-        print("[BOOTSTRAP] ERROR: ocr-guia.py missing")
         sys.exit(1)
 
-    subprocess.Popen([
-        str(VENV_PYTHON),
-        str(main_script)
-    ])
+    subprocess.Popen(
+        [str(VENV_PYTHONW), str(main_script)],
+        creationflags=FLAGS
+    )
 
 
 def main():
 
-    print("[BOOTSTRAP] Base directory:", BASE_DIR)
-    print(sys.version)
-
     acquire_lock()
+
     ensure_venv()
     update_repo()
     install_packages()
