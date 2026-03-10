@@ -1,3 +1,4 @@
+import os.path
 import time
 import re
 import threading
@@ -33,6 +34,19 @@ def consultar_api(id_, mes):
     r.raise_for_status()  # levanta erro se não for 200
 
     return r.text
+
+def get_threads():
+    threads_file = BASE_DIR / "threads.txt"
+    if os.path.exists(threads_file):
+        with open(threads_file, 'r') as f:
+            thread_count = f.read().strip()
+            try:
+                thread_count = int(thread_count)
+            except:
+                return 2
+            else:
+                return thread_count if thread_count < 12 else 12
+    return 2
 
 # ---------------- CONFIG ----------------
 
@@ -326,8 +340,9 @@ def main():
 
     if not pasta_atual:
         return
+    threads = get_threads()
 
-    for _ in range(2):
+    for _ in range(threads):
         threading.Thread(target=worker, daemon=True).start()
 
     iniciar_observer()
