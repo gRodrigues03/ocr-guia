@@ -83,17 +83,6 @@ def install_packages():
         "--upgrade"
     ])
 
-    subprocess.check_call([
-        str(VENV_PYTHON),
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "pip",
-        "setuptools",
-        "wheel"
-    ])
-
     print("[BOOTSTRAP] Installing")
 
     subprocess.check_call([
@@ -135,10 +124,10 @@ def update_repo():
 
 def launch_app():
 
-    main_script = LOCAL_PATH / "main.py"
+    main_script = LOCAL_PATH / "ocr-guia.py"
 
     if not main_script.exists():
-        print("[BOOTSTRAP] ERROR: main.py missing")
+        print("[BOOTSTRAP] ERROR: ocr-guia.py missing")
         sys.exit(1)
 
     subprocess.check_call([
