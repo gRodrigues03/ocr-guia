@@ -1,4 +1,3 @@
-import os.path
 import time
 import re
 import threading
@@ -23,6 +22,7 @@ from datetime import datetime
 
 import requests
 
+import sys
 
 trayicon = None
 
@@ -35,17 +35,23 @@ def consultar_api(id_, mes):
 
     return r.text
 
+
+def get_base_dir():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    else:
+        return Path(sys.argv[0]).resolve().parent.parent
+
 def get_threads():
-    threads_file = BASE_DIR / "threads.txt"
-    if os.path.exists(threads_file):
-        with open(threads_file, 'r') as f:
-            thread_count = f.read().strip()
-            try:
-                thread_count = int(thread_count)
-            except:
-                return 2
-            else:
-                return thread_count if thread_count < 12 else 12
+    threads_file = get_base_dir() / "threads.txt"
+
+    if threads_file.exists():
+        try:
+            thread_count = int(threads_file.read_text().strip())
+            return thread_count if 0 < thread_count < 12 else 12
+        except Exception:
+            return 2
+
     return 2
 
 # ---------------- CONFIG ----------------
