@@ -1,0 +1,1 @@
+pyinstaller --icon "exeicon.ico" --onefile --noconsole --name ocr-guia runner.py
