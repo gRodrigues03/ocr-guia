@@ -126,15 +126,18 @@ def update_repo():
     try:
         repo = Repo(str(LOCAL_PATH))
 
-        # fetch latest refs
+        # fetch updates from origin
         porcelain.fetch(repo, REPO_URL)
 
-        # get default branch from origin
-        remote_head = repo.refs[b"refs/remotes/origin/HEAD"]
+        # determine current branch
+        head_ref = repo.refs.read_ref(b"HEAD")
+        branch = head_ref.split(b"/")[-1]
 
-        print("[BOOTSTRAP] Resetting working tree...")
+        remote_ref = b"refs/remotes/origin/" + branch
 
-        porcelain.reset(repo, mode="hard", treeish=remote_head)
+        print(f"[BOOTSTRAP] Resetting to origin/{branch.decode()}")
+
+        porcelain.reset(repo, mode="hard", treeish=remote_ref)
 
     except Exception as e:
         print("[BOOTSTRAP] Update failed:", e)
