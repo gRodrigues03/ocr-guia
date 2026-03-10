@@ -36,6 +36,7 @@ def consultar_api(id_, mes):
 
 # ---------------- CONFIG ----------------
 
+BASE_DIR = Path(__file__).resolve().parent
 
 regex_guia = re.compile(r"\d{5,6}", re.IGNORECASE | re.DOTALL)
 
@@ -302,7 +303,7 @@ def iniciar_tray():
     global trayicon
     trayicon = pystray.Icon(
         "RenomeadorPDF",
-        Image.open("trayicon.png"),
+        Image.open(BASE_DIR / "trayicon.png"),
         menu=pystray.Menu(
             item("Alterar pasta", alterar_pasta),
             item("Selecionar mês", alterar_mes),
