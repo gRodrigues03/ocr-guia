@@ -89,11 +89,11 @@ def extrair_guia(pdf_path):
         rect = page.rect
 
         if (len(over_date) == 7 and over_date >= '2025-08') or (len(over_date) > 7 and over_date >= '2025-08-01'):
-            clip = fitz.Rect(0, 0, rect.width, rect.height*0.4)
+            clip = fitz.Rect(rect.width*0.1, 0, rect.width*0.9, rect.height*0.4)
         else:
-            clip = fitz.Rect(rect.width*0.5, 0, rect.width, rect.height * 0.3)
+            clip = fitz.Rect(rect.width*0.55, 0, rect.width, rect.height * 0.28)
 
-        pix = page.get_pixmap(matrix=fitz.Matrix(200 / 72, 200 / 72), clip=clip, colorspace=fitz.csGRAY)
+        pix = page.get_pixmap(matrix=fitz.Matrix(195 / 72, 195 / 72), clip=clip, colorspace=fitz.csGRAY)
 
         img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
 
