@@ -1,1 +1,0 @@
-pyinstaller --icon "exeicon.ico" --onefile --hidden-import=pymupdf._extra --noconsole --collect-data rapidocr_onnxruntime ocr-guia.py
