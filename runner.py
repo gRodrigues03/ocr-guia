@@ -3,7 +3,6 @@ import sys
 import shutil
 import subprocess
 import ctypes
-import hashlib
 import json
 import zipfile
 from pathlib import Path
@@ -14,6 +13,8 @@ import requests
 PROJECT_NAME = "ocr-guia"
 REPO_ZIP = "https://github.com/gRodrigues03/ocr-guia/archive/refs/heads/main.zip"
 COMMIT_API = "https://api.github.com/repos/gRodrigues03/ocr-guia/commits/main"
+
+UV_URL = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
 
 BOOTSTRAP_MUTEX = None
 
@@ -31,23 +32,17 @@ def get_base_dir():
 BASE_DIR = get_base_dir()
 
 LOCAL_PATH = BASE_DIR / PROJECT_NAME
-VENV_PATH = BASE_DIR / "venv"
 
 STATE_FILE = BASE_DIR / ".bootstrap_state.json"
 
-
-if os.name == "nt":
-    VENV_PYTHON = VENV_PATH / "Scripts" / "python.exe"
-    VENV_PYTHONW = VENV_PATH / "Scripts" / "pythonw.exe"
-else:
-    VENV_PYTHON = VENV_PATH / "bin" / "python"
-    VENV_PYTHONW = VENV_PATH / "bin" / "python"
+UV_DIR = BASE_DIR / "uv"
+UV_EXE = UV_DIR / "uv.exe"
 
 
 # ---------------- UTILS ----------------
 
-def run_hidden(cmd):
-    subprocess.check_call(cmd, creationflags=FLAGS)
+def run_hidden(cmd, cwd=None):
+    subprocess.check_call(cmd, cwd=cwd, creationflags=FLAGS)
 
 
 def acquire_lock():
@@ -57,23 +52,6 @@ def acquire_lock():
 
     if ctypes.windll.kernel32.GetLastError() == 183:
         sys.exit(0)
-
-
-def find_system_python():
-
-    for c in ["py", "python3", "python"]:
-        try:
-            subprocess.check_call(
-                [c, "--version"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=FLAGS
-            )
-            return c
-        except Exception:
-            pass
-
-    return None
 
 
 # ---------------- STATE ----------------
@@ -93,35 +71,24 @@ def save_state(state):
     STATE_FILE.write_text(json.dumps(state))
 
 
-# ---------------- HASH ----------------
+# ---------------- UV ----------------
 
-def hash_file(path):
+def ensure_uv():
 
-    h = hashlib.sha256()
-
-    with open(path, "rb") as f:
-        while chunk := f.read(8192):
-            h.update(chunk)
-
-    return h.hexdigest()
-
-
-# ---------------- VENV ----------------
-
-def ensure_venv():
-
-    if VENV_PYTHON.exists():
+    if UV_EXE.exists():
         return
 
-    if VENV_PATH.exists():
-        shutil.rmtree(VENV_PATH)
+    tmp_zip = BASE_DIR / "uv.zip"
 
-    python = find_system_python()
+    r = requests.get(UV_URL, timeout=60)
 
-    if not python:
-        sys.exit(1)
+    with open(tmp_zip, "wb") as f:
+        f.write(r.content)
 
-    run_hidden([python, "-m", "venv", str(VENV_PATH)])
+    with zipfile.ZipFile(tmp_zip, "r") as z:
+        z.extractall(UV_DIR)
+
+    tmp_zip.unlink()
 
 
 # ---------------- GITHUB ----------------
@@ -186,43 +153,14 @@ def update_repo():
     save_state(state)
 
 
-# ---------------- PIP ----------------
+# ---------------- UV SYNC ----------------
 
-def install_packages():
+def sync_env():
 
-    req = LOCAL_PATH / "requirements.txt"
-
-    if not req.exists():
-        return
-
-    state = load_state()
-
-    new_hash = hash_file(req)
-
-    if state.get("req_hash") == new_hash:
-        return
-
-    run_hidden([
-        str(VENV_PYTHON),
-        "-m",
-        "ensurepip",
-        "--upgrade"
-    ])
-
-    run_hidden([
-        str(VENV_PYTHON),
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "--upgrade-strategy",
-        "only-if-needed",
-        "-r",
-        str(req)
-    ])
-
-    state["req_hash"] = new_hash
-    save_state(state)
+    run_hidden(
+        [str(UV_EXE), "sync"],
+        cwd=LOCAL_PATH
+    )
 
 
 # ---------------- LAUNCH ----------------
@@ -235,7 +173,8 @@ def launch_app():
         sys.exit(1)
 
     subprocess.Popen(
-        [str(VENV_PYTHONW), str(main_script)],
+        [str(UV_EXE), "run", str(main_script)],
+        cwd=LOCAL_PATH,
         creationflags=FLAGS
     )
 
@@ -246,9 +185,9 @@ def main():
 
     acquire_lock()
 
-    ensure_venv()
+    ensure_uv()
     update_repo()
-    install_packages()
+    sync_env()
     launch_app()
 
 

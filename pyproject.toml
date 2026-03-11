@@ -7,7 +7,7 @@ requires-python = ">=3.14"
 dependencies = [
     "pillow>=12.1.1",
     "pyinstaller>=6.19.0",
-    "pymupdf>=1.27.1",
+    "pymupdf>=1.27.2",
     "pystray>=0.19.5",
     "rapidocr-onnxruntime>=1.4.4",
     "requests>=2.32.5",
