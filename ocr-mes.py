@@ -11,12 +11,27 @@ from rapidocr_onnxruntime import RapidOCR
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-import tkinter as tk
-from tkinter import filedialog, ttk
+import customtkinter as ctk
+from tkinter import filedialog
 
 import requests
 import sys
 
+
+# ---------------- THEME ----------------
+
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
+
+
+def resource_path(filename):
+    if getattr(sys, "frozen", False):
+        base = Path(sys._MEIPASS)
+    else:
+        base = Path(__file__).resolve().parent
+    return base / filename
+
+# ---------------- API ----------------
 
 def consultar_api(id_, mes):
     url = f"http://148.1.1.11:6969/nguia?id={id_}&mes={mes}"
@@ -49,8 +64,6 @@ def get_threads():
 
 # ---------------- CONFIG ----------------
 
-BASE_DIR = Path(__file__).resolve().parent
-
 regex_guia = re.compile(r"\d{5,6}", re.IGNORECASE | re.DOTALL)
 regex_mes = re.compile(r"[\\/](\d{4})[\\/](\d{2})\s*-")
 
@@ -63,37 +76,6 @@ fila = queue.Queue()
 ui_queue = queue.Queue()
 
 stop_event = threading.Event()
-
-
-# ---------------- UI ----------------
-
-root = tk.Tk()
-root.title("Renomeador de PDFs")
-root.geometry("600x420")
-
-frame = tk.Frame(root)
-frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-btn_pasta = tk.Button(frame, text="Selecionar pasta")
-btn_pasta.pack(anchor="w")
-
-status = tk.Label(frame, text="Aguardando pasta...")
-status.pack(anchor="w", pady=(10, 0))
-
-fila_label = tk.Label(frame, text="Arquivos na fila: 0")
-fila_label.pack(anchor="w")
-
-contador_label = tk.Label(frame, text="Processados: 0 | Erros: 0")
-contador_label.pack(anchor="w")
-
-progress = ttk.Progressbar(frame, mode="indeterminate")
-progress.pack(fill="x", pady=10)
-
-log = tk.Text(frame, height=15)
-log.pack(fill="both", expand=True)
-
-processed_count = 0
-error_count = 0
 
 
 # ---------------- PATH DATE ----------------
@@ -195,8 +177,6 @@ def processar_pdf(pdf):
         ui_queue.put(("error", f"Data não encontrada: {pdf.name}"))
         return
 
-    ui_queue.put(("processing", pdf.name))
-
     guia, texto = extrair_guia(pdf, data_ref)
 
     if guia:
@@ -253,21 +233,17 @@ class Handler(FileSystemEventHandler):
         path = Path(event.src_path)
 
         if (
-                path.suffix.lower() == ".pdf"
-                and path.name
-                and not path.name[0].isdigit()
-                and not path.name.startswith("NO_OCR ")
+            path.suffix.lower() == ".pdf"
+            and path.name
+            and not path.name[0].isdigit()
+            and not path.name.startswith("NO_OCR ")
         ):
-
             fila.put(path)
 
 
 def iniciar_observer():
 
     global observer
-
-    if not pasta_atual:
-        return
 
     if observer:
         observer.stop()
@@ -276,99 +252,118 @@ def iniciar_observer():
     handler = Handler()
 
     observer = Observer()
-
     observer.schedule(handler, str(pasta_atual), recursive=True)
-
     observer.start()
 
     ui_queue.put(("log", f"Observando: {pasta_atual}"))
 
     for pdf in pasta_atual.glob("*/*.pdf"):
+
         if (
-                pdf.name
-                and not pdf.name[0].isdigit()
-                and not pdf.name.startswith("NO_OCR ")
+            pdf.name
+            and not pdf.name[0].isdigit()
+            and not pdf.name.startswith("NO_OCR ")
         ):
             fila.put(pdf)
 
 
-# ---------------- UI UPDATE LOOP ----------------
+# ---------------- UI ----------------
 
-def atualizar_ui():
+class App(ctk.CTk):
 
-    global processed_count
-    global error_count
+    def __init__(self):
+        super().__init__()
 
-    while True:
+        self.title("OCR Renomeador")
+        self.geometry("600x420")
 
         try:
-            msg = ui_queue.get_nowait()
-        except queue.Empty:
-            break
+            ico = resource_path("exeicon.ico")
+            png = resource_path("trayicon.png")
 
-        tipo = msg[0]
+            if ico.exists():
+                self.iconbitmap(ico)
+            elif png.exists():
+                from PIL import ImageTk, Image
+                img = ImageTk.PhotoImage(Image.open(png))
+                self.iconphoto(True, img)
+                self._icon = img  # keep reference
+        except Exception:
+            pass
 
-        if tipo == "processing":
+        self.processed = 0
+        self.errors = 0
 
-            status.config(text=f"Processando: {msg[1]}")
-            progress.start()
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(4, weight=1)
 
-        elif tipo == "renamed":
+        self.btn = ctk.CTkButton(self, text="Selecionar pasta", command=self.selecionar_pasta)
+        self.btn.grid(row=0, column=0, padx=20, pady=(20,10), sticky="w")
 
-            progress.stop()
+        self.status = ctk.CTkLabel(self, text="Nenhuma pasta selecionada, selecione uma pasta para começar" if pasta_atual is None else pasta_atual)
+        self.status.grid(row=1, column=0, padx=20, sticky="w")
 
-            processed_count += 1
+        self.queue_label = ctk.CTkLabel(self, text="Fila: 0")
+        self.queue_label.grid(row=2, column=0, padx=20, sticky="w")
 
-            log.insert("end", f"{msg[1]} → {msg[2]}\n")
-            log.see("end")
+        self.counter = ctk.CTkLabel(self, text="Processados: 0 | Erros: 0")
+        self.counter.grid(row=3, column=0, padx=20, sticky="w")
 
-        elif tipo == "notfound":
+        self.log = ctk.CTkTextbox(self)
+        self.log.grid(row=5, column=0, padx=20, pady=(0,20), sticky="nsew")
 
-            progress.stop()
+        self.after(100, self.update_ui)
 
-            error_count += 1
+    def selecionar_pasta(self):
 
-            log.insert("end", f"Guia não encontrada: {msg[1]}\n")
-            log.see("end")
+        global pasta_atual
+        global fila
 
-        elif tipo == "error":
+        pasta = filedialog.askdirectory()
 
-            error_count += 1
+        if not pasta:
+            return
 
-            log.insert("end", msg[1] + "\n")
-            log.see("end")
+        pasta_atual = Path(pasta)
 
-        elif tipo == "log":
+        fila = queue.Queue()
 
-            log.insert("end", msg[1] + "\n")
-            log.see("end")
+        iniciar_observer()
 
-    fila_label.config(text=f"Arquivos na fila: {fila.qsize()}")
-    contador_label.config(text=f"Processados: {processed_count} | Erros: {error_count}")
+    def update_ui(self):
 
-    root.after(100, atualizar_ui)
+        while True:
 
+            try:
+                msg = ui_queue.get_nowait()
+            except queue.Empty:
+                break
 
-# ---------------- UI ACTIONS ----------------
+            tipo = msg[0]
 
-def selecionar_pasta():
+            self.status.configure(text="Nenhuma pasta selecionada, selecione uma pasta para começar" if pasta_atual is None else pasta_atual)
 
-    global pasta_atual
-    global fila
+            if tipo == "renamed":
+                self.processed += 1
+                self.log.insert("end", f"{msg[1]} → {msg[2]}\n")
+                self.log.see("end")
 
-    pasta = filedialog.askdirectory(parent=root)
+            elif tipo == "notfound":
+                self.errors += 1
+                self.log.insert("end", f"NO OCR: {msg[1]}\n")
+                self.log.see("end")
 
-    if not pasta:
-        return
+            elif tipo == "error":
+                self.errors += 1
+                self.log.insert("end", msg[1] + "\n")
 
-    pasta_atual = Path(pasta)
+            elif tipo == "log":
+                self.log.insert("end", msg[1] + "\n")
 
-    fila = queue.Queue()
+        self.queue_label.configure(text=f"Arquivos na fila: {fila.qsize()}")
+        self.counter.configure(text=f"Processados: {self.processed} | Erros: {self.errors}")
 
-    iniciar_observer()
-
-
-btn_pasta.config(command=selecionar_pasta)
+        self.after(200, self.update_ui)
 
 
 # ---------------- MAIN ----------------
@@ -380,9 +375,8 @@ def main():
     for _ in range(threads):
         threading.Thread(target=worker, daemon=True).start()
 
-    root.after(200, atualizar_ui)
-
-    root.mainloop()
+    app = App()
+    app.mainloop()
 
 
 if __name__ == "__main__":

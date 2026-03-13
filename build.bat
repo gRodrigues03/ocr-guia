@@ -1,1 +1,1 @@
-pyinstaller --icon "exeicon.ico" --onefile --noconsole --collect-data rapidocr_onnxruntime ocr-guia.py
+pyinstaller --icon "exeicon.ico" --add-data "exeicon.ico;." --add-data "trayicon.png;." --onefile --noconsole --collect-data rapidocr_onnxruntime ocr-mes.py
