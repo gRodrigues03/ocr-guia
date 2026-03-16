@@ -23,6 +23,11 @@ import sys
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
+empresas_index = {
+    'PONTE': '001',
+    'GLORIA': '002',
+    'GARDEL': '003'
+}
 
 def resource_path(filename):
     if getattr(sys, "frozen", False):
@@ -33,8 +38,8 @@ def resource_path(filename):
 
 # ---------------- API ----------------
 
-def consultar_api(id_, mes):
-    url = f"http://148.1.1.11:6969/nguia?id={id_}&mes={mes}"
+def consultar_api(id_, empresa, mes):
+    url = f"http://148.1.1.11:6969/nguia?id={id_}&mes={mes}&empresa={empresas_index.get(empresa, None)}"
 
     r = requests.get(url, timeout=5)
     r.raise_for_status()
@@ -83,7 +88,6 @@ stop_event = threading.Event()
 def extrair_data_do_path(path: Path):
 
     match = regex_mes.search(str(path))
-
     if not match:
         return None
 
@@ -91,16 +95,21 @@ def extrair_data_do_path(path: Path):
     mes = match.group(2)
 
     dia = path.parent.name
-
     if not dia.isdigit():
         return None
 
-    return f"{ano}-{mes}-{int(dia):02d}"
+    data = f"{ano}-{mes}-{int(dia):02d}"
+
+    parts = path.parts
+    idx_ano = parts.index(ano)        # find the year folder
+    pasta_raiz = parts[idx_ano - 1]   # folder before the year (GLORIA)
+
+    return [pasta_raiz, data]
 
 
 # ---------------- OCR ----------------
 
-def extrair_guia(pdf_path, data_ref):
+def extrair_guia(pdf_path, empresa, data_ref):
 
     try:
 
@@ -133,7 +142,7 @@ def extrair_guia(pdf_path, data_ref):
 
         if match:
             for m in match:
-                text = consultar_api(m, data_ref)
+                text = consultar_api(m, empresa, data_ref)
                 if text and len(text):
                     return text.split(',')[0], texto
 
@@ -171,13 +180,13 @@ def processar_pdf(pdf):
     if not esperar_arquivo_finalizar(pdf):
         return
 
-    data_ref = extrair_data_do_path(pdf)
+    empresa, data_ref = extrair_data_do_path(pdf)
 
     if not data_ref:
         ui_queue.put(("error", f"Data não encontrada: {pdf.name}"))
         return
 
-    guia, texto = extrair_guia(pdf, data_ref)
+    guia, texto = extrair_guia(pdf, empresa, data_ref)
 
     if guia:
 
