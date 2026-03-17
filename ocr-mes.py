@@ -33,6 +33,70 @@ empresas_index = {
     'GARDEL': '003'
 }
 
+# Canonical UNC root that all nodes can reach regardless of local drive mapping.
+# Paths sent over the network are always expressed relative to this base.
+UNC_BASE = Path(r"\\148.1.1.231\shared\ARQUIVO\!GUIAS")
+
+
+def _resolve_unc_share(drive: str) -> "Path | None":
+    """
+    Use WNetGetConnection to find the UNC share a drive letter maps to.
+    Returns the UNC share root (e.g. the path to //148.1.1.231/shared) for 'X:'.
+    Returns None on any failure (non-Windows, unmapped drive, etc.).
+    """
+    try:
+        import ctypes
+        buf  = ctypes.create_unicode_buffer(512)
+        size = ctypes.c_ulong(512)
+        ret  = ctypes.windll.mpr.WNetGetConnectionW(drive, buf, ctypes.byref(size))
+        if ret == 0:
+            return Path(buf.value)
+    except Exception:
+        pass
+    return None
+
+
+def to_unc(p: Path) -> Path:
+    """
+    Rewrite a local path to its canonical UNC form under UNC_BASE.
+
+    All valid mount layouts produce a unc_full that falls under UNC_BASE:
+      X: = UNC_BASE     ->  X:/GLORIA/...            -> UNC_BASE/GLORIA/...
+      X: = share root   ->  X:/ARQUIVO/!GUIAS/GLORIA -> UNC_BASE/GLORIA/...
+      X: = one up       ->  X:/!GUIAS/GLORIA/...     -> UNC_BASE/GLORIA/...
+      Already UNC_BASE  ->  returned as-is
+
+    If the path is not under our share hierarchy, it is returned unchanged.
+    """
+    # 1. Already correct
+    try:
+        return UNC_BASE / p.relative_to(UNC_BASE)
+    except ValueError:
+        pass
+
+    # 2. Build the UNC equivalent of p
+    unc_full: "Path | None" = None
+
+    if p.drive and not p.drive.startswith("\\\\"):
+        # Drive-letter path: resolve via WNetGetConnection
+        share = _resolve_unc_share(p.drive)
+        if share is not None:
+            unc_full = share / p.relative_to(p.anchor)
+    elif p.drive.startswith("\\\\"):
+        # Already a UNC path on some share
+        unc_full = p
+
+    # 3. Relativise against UNC_BASE
+    if unc_full is not None:
+        try:
+            return UNC_BASE / unc_full.relative_to(UNC_BASE)
+        except ValueError:
+            pass
+
+    # Not under our share hierarchy — return as-is
+    return p
+
+
 def resource_path(filename):
     if getattr(sys, "frozen", False):
         base = Path(sys._MEIPASS)
@@ -151,13 +215,24 @@ def extrair_guia(pdf_path, empresa, data_ref):
 
 # ---------------- PROCESSING ----------------
 
-def esperar_arquivo_finalizar(path):
+def esperar_arquivo_finalizar(path, retries: int = 6, retry_delay: float = 1.0):
+    """
+    Wait until the file stops growing (write complete).
+    On network paths a FileNotFoundError may be transient, so retry a few
+    times before giving up.
+    """
+    not_found_count = 0
     tamanho = -1
     while True:
         try:
             novo = path.stat().st_size
+            not_found_count = 0
         except FileNotFoundError:
-            return False
+            not_found_count += 1
+            if not_found_count >= retries:
+                return False
+            time.sleep(retry_delay)
+            continue
         if novo == tamanho:
             return True
         tamanho = novo
@@ -383,7 +458,7 @@ class MasterServer:
         for _ in range(n):
             try:
                 pdf: Path = fila.get_nowait()
-                jobs.append(str(pdf))
+                jobs.append(str(to_unc(pdf)))   # normalise to UNC for collaborators
                 fila.task_done()
             except queue.Empty:
                 break
@@ -656,31 +731,43 @@ class App(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # ---- Tab view ----
-        self.tabs = ctk.CTkTabview(self)
+        self.tabs = ctk.CTkTabview(self, command=self._on_tab_change)
         self.tabs.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-        self.tabs.add("Local")
-        self.tabs.add("Rede")
+        self.tabs.add("Mestre")
+        self.tabs.add("Colaborador")
 
-        self._build_local_tab()
-        self._build_net_tab()
+        self._build_master_tab()
+        self._build_collab_tab()
 
         self.after(200, self.update_ui)
 
-    # ------------------------------------------------------------------ LOCAL TAB
+    # ------------------------------------------------------------------ MASTER TAB
 
-    def _build_local_tab(self):
-        tab = self.tabs.tab("Local")
+    def _build_master_tab(self):
+        tab = self.tabs.tab("Mestre")
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(4, weight=1)
 
-        self.btn = ctk.CTkButton(tab, text="Selecionar pasta", command=self.selecionar_pasta)
-        self.btn.grid(row=0, column=0, padx=0, pady=(10, 6), sticky="w")
+        # Top bar: folder button + stop button side by side
+        top = ctk.CTkFrame(tab, fg_color="transparent")
+        top.grid(row=0, column=0, sticky="ew", pady=(10, 6))
+
+        self.btn_pasta = ctk.CTkButton(
+            top, text="Selecionar pasta", command=self.selecionar_pasta
+        )
+        self.btn_pasta.pack(side="left")
+
+        self.btn_master_stop = ctk.CTkButton(
+            top, text="Parar",
+            width=80, fg_color="#c0392b", hover_color="#922b21",
+            state="disabled", command=self._stop_master
+        )
+        self.btn_master_stop.pack(side="left", padx=(8, 0))
 
         self.status = ctk.CTkLabel(
             tab,
-            text="Nenhuma pasta selecionada" if pasta_atual is None else str(pasta_atual)
+            text="Selecione uma pasta para começar e anunciar-se como mestre na rede."
         )
         self.status.grid(row=1, column=0, padx=0, sticky="w")
 
@@ -694,114 +781,73 @@ class App(ctk.CTk):
         self.log.grid(row=4, column=0, padx=0, pady=(6, 0), sticky="nsew")
 
     def selecionar_pasta(self):
-        global pasta_atual, fila
+        global pasta_atual, fila, master_server
         pasta = filedialog.askdirectory()
         if not pasta:
             return
         pasta_atual = Path(pasta)
         fila = queue.Queue()
         iniciar_observer()
-
-    # ------------------------------------------------------------------ NETWORK TAB
-
-    def _build_net_tab(self):
-        tab = self.tabs.tab("Rede")
-        tab.grid_columnconfigure(0, weight=1)
-        tab.grid_rowconfigure(3, weight=1)
-
-        # Role selector
-        role_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        role_frame.grid(row=0, column=0, sticky="ew", pady=(10, 6))
-
-        ctk.CTkLabel(role_frame, text="Papel neste nó:").pack(side="left", padx=(0, 10))
-
-        self.role_var = ctk.StringVar(value="none")
-
-        self.btn_master = ctk.CTkButton(
-            role_frame, text="Ser Mestre",
-            width=120, command=self._activate_master
-        )
-        self.btn_master.pack(side="left", padx=4)
-
-        self.btn_worker = ctk.CTkButton(
-            role_frame, text="Ser Colaborador",
-            width=140, fg_color="gray", command=self._activate_worker
-        )
-        self.btn_worker.pack(side="left", padx=4)
-
-        self.btn_net_stop = ctk.CTkButton(
-            role_frame, text="Parar",
-            width=80, fg_color="#c0392b", hover_color="#922b21",
-            command=self._deactivate_net
-        )
-        self.btn_net_stop.pack(side="left", padx=4)
-        self.btn_net_stop.configure(state="disabled")
-
-        # Status line
-        self.net_status_label = ctk.CTkLabel(tab, text="Inativo")
-        self.net_status_label.grid(row=1, column=0, sticky="w")
-
-        # Middle area: master shows worker list; worker shows master list
-        self.net_mid_frame = ctk.CTkFrame(tab)
-        self.net_mid_frame.grid(row=2, column=0, sticky="ew", pady=4)
-        self.net_mid_frame.grid_columnconfigure(0, weight=1)
-
-        self.net_mid_label = ctk.CTkLabel(self.net_mid_frame, text="")
-        self.net_mid_label.grid(row=0, column=0, sticky="w", padx=8, pady=4)
-
-        # Master list (for worker mode)
-        self.master_list_frame = ctk.CTkScrollableFrame(tab, height=100)
-        self.master_list_frame.grid(row=3, column=0, sticky="nsew", pady=(0, 4))
-        self.master_list_frame.grid_columnconfigure(0, weight=1)
-        self._master_btns: dict[str, ctk.CTkButton] = {}
-
-        # Network log
-        self.net_log = ctk.CTkTextbox(tab, height=120)
-        self.net_log.grid(row=4, column=0, sticky="ew", pady=(0, 4))
-
-    def _activate_master(self):
-        global master_server
+        # Automatically become master as soon as a folder is chosen
         if master_server:
-            return
+            master_server.stop()
         master_server = MasterServer()
         master_server.start()
-        self.role_var.set("master")
-        self.net_status_label.configure(text=f"Mestre ativo — {NODE_NAME}")
-        self.btn_master.configure(state="disabled")
-        self.btn_worker.configure(state="disabled")
-        self.btn_net_stop.configure(state="normal")
-        self.net_mid_label.configure(text="Colaboradores conectados:")
+        self.btn_pasta.configure(text="Trocar pasta")
+        self.btn_master_stop.configure(state="normal")
 
-    def _activate_worker(self):
-        self.role_var.set("worker")
-        start_discovery()
-        self.net_status_label.configure(text="Buscando mestres na rede…")
-        self.btn_master.configure(state="disabled")
-        self.btn_worker.configure(state="disabled")
-        self.btn_net_stop.configure(state="normal")
-        self.net_mid_label.configure(text="Mestres disponíveis:")
-
-    def _deactivate_net(self):
-        global master_server
+    def _stop_master(self):
+        global master_server, pasta_atual
         if master_server:
             master_server.stop()
             master_server = None
-        disconnect_from_master()
-        stop_event.set()
-        self.role_var.set("none")
-        self.net_status_label.configure(text="Inativo")
-        self.btn_master.configure(state="normal")
-        self.btn_worker.configure(state="normal")
-        self.btn_net_stop.configure(state="disabled")
+        if observer:
+            observer.stop()
+        pasta_atual = None
+        self.status.configure(
+            text="Selecione uma pasta para começar e anunciar-se como mestre na rede."
+        )
+        self.btn_pasta.configure(text="Selecionar pasta")
+        self.btn_master_stop.configure(state="disabled")
+
+    # ------------------------------------------------------------------ COLLAB TAB
+
+    def _build_collab_tab(self):
+        tab = self.tabs.tab("Colaborador")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+
+        self.collab_status_label = ctk.CTkLabel(
+            tab, text="Buscando mestres na rede…"
+        )
+        self.collab_status_label.grid(row=0, column=0, sticky="w", pady=(10, 4))
+
+        # Scrollable list of discovered masters
+        self.master_list_frame = ctk.CTkScrollableFrame(tab, label_text="Mestres disponíveis")
+        self.master_list_frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self.master_list_frame.grid_columnconfigure(0, weight=1)
+        self._master_btns: dict[str, ctk.CTkButton] = {}
+
+        self.net_log = ctk.CTkTextbox(tab)
+        self.net_log.grid(row=2, column=0, sticky="nsew", pady=(0, 4))
+
+    # ------------------------------------------------------------------ TAB SWITCH
+
+    def _on_tab_change(self):
+        tab = self.tabs.get()
+        if tab == "Colaborador":
+            # Start discovery passively whenever the collab tab is visible
+            start_discovery()
+        # No forced disconnect on tab switch — user may switch just to check logs
+
+    # ------------------------------------------------------------------ MASTER LIST (collab)
 
     def _refresh_master_list(self, masters: dict):
-        # Remove buttons for masters that disappeared
         for mid, btn in list(self._master_btns.items()):
             if mid not in masters:
                 btn.destroy()
                 del self._master_btns[mid]
 
-        # Add / update
         for mid, info in masters.items():
             label     = f"{info['name']}  ({info['ip']})"
             connected = (mid == active_master_id)
@@ -824,10 +870,8 @@ class App(ctk.CTk):
     def _toggle_master(self, master_id: str):
         """Connect to a master, or disconnect if it's already the active one."""
         if active_master_id == master_id:
-            # Disconnect toggle
             disconnect_from_master()
-            self.net_status_label.configure(text="Buscando mestres na rede…")
-            # Reset button appearance
+            self.collab_status_label.configure(text="Buscando mestres na rede…")
             if master_id in self._master_btns:
                 with _disc_lock:
                     info = discovered_masters.get(master_id, {})
@@ -836,7 +880,6 @@ class App(ctk.CTk):
                     text=label, fg_color=("#3B8ED0", "#1F6AA5")
                 )
         else:
-            # Disconnect previous if any
             prev = active_master_id
             if prev:
                 disconnect_from_master()
@@ -850,7 +893,7 @@ class App(ctk.CTk):
             connect_to_master(master_id)
             with _disc_lock:
                 info = discovered_masters.get(master_id, {})
-            self.net_status_label.configure(
+            self.collab_status_label.configure(
                 text=f"Colaborando com {info.get('name', master_id)}…"
             )
             if master_id in self._master_btns:
@@ -870,11 +913,6 @@ class App(ctk.CTk):
 
             tipo = msg[0]
 
-            # local tab updates
-            self.status.configure(
-                text="Nenhuma pasta selecionada" if pasta_atual is None else str(pasta_atual)
-            )
-
             if tipo == "renamed":
                 self.processed += 1
                 self.log.insert("end", f"{msg[1]} → {msg[2]}\n")
@@ -892,7 +930,6 @@ class App(ctk.CTk):
 
             elif tipo == "log":
                 text = msg[1]
-                # route net messages to net log
                 if text.startswith("[Rede]"):
                     self.net_log.insert("end", text + "\n")
                     self.net_log.see("end")
@@ -901,30 +938,33 @@ class App(ctk.CTk):
                     self.log.see("end")
 
             elif tipo == "net_log":
-                # results processed by this node as collaborator
                 self.net_log.insert("end", msg[1] + "\n")
                 self.net_log.see("end")
 
-            # network-specific
             elif tipo == "masters_updated":
-                if self.role_var.get() == "worker":
-                    self._refresh_master_list(msg[1])
+                self._refresh_master_list(msg[1])
 
             elif tipo == "net_workers":
-                if self.role_var.get() == "master":
-                    workers = msg[1]
-                    self.net_mid_label.configure(
-                        text=f"Colaboradores conectados: {len(workers)}"
-                        + (("  —  " + ", ".join(workers)) if workers else "")
-                    )
+                workers = msg[1]
+                n = len(workers)
+                suffix = ("  —  " + ", ".join(workers)) if workers else ""
+                self.log.insert("end", f"[Rede] Colaboradores conectados: {n}{suffix}\n")
+                self.log.see("end")
 
             elif tipo == "collab_status":
                 _, status, name = msg
                 if status == "connected":
-                    self.net_status_label.configure(text=f"Colaborando com {name}")
+                    self.collab_status_label.configure(text=f"Colaborando com {name}")
                 else:
-                    if self.role_var.get() == "worker":
-                        self.net_status_label.configure(text="Desconectado — aguardando mestre…")
+                    self.collab_status_label.configure(text="Desconectado — buscando mestres…")
+
+            # Keep master tab status in sync
+            if pasta_atual and master_server:
+                collab_count = len(master_server._workers)
+                collab_info  = f"  ({collab_count} colaborador(es))" if collab_count else ""
+                self.status.configure(text=f"{pasta_atual}{collab_info}")
+            elif pasta_atual:
+                self.status.configure(text=str(pasta_atual))
 
         self.queue_label.configure(text=f"Arquivos na fila: {fila.qsize()}")
         self.counter.configure(text=f"Processados: {self.processed} | Erros: {self.errors}")
