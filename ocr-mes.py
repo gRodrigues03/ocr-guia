@@ -192,7 +192,7 @@ def extrair_guia(pdf_path, empresa, data_ref):
         x0, y0, x1, y1 = (clip * scale)
 
         img = np.frombuffer(pix.samples, np.uint8).reshape(
-            pix.height, pix.width
+            pix.height, pix.width, pix.n
         )[int(y0):int(y1), int(x0):int(x1)]
 
         resultado, _ = ocr(img)
