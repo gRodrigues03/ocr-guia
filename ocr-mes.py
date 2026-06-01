@@ -108,7 +108,7 @@ def resource_path(filename):
 # ---------------- API ----------------
 
 def consultar_api(id_, empresa, mes):
-    url = f"http://148.1.1.11:6969/nguia?id={id_}&mes={mes}&empresa={empresas_index.get(empresa, None)}"
+    url = f"http://148.1.1.239:8501/nguia?id={id_}&mes={mes}&empresa={empresas_index.get(empresa, None)}"
     r = requests.get(url, timeout=5)
     r.raise_for_status()
     return r.text
