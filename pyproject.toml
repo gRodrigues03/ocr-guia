@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "customtkinter>=5.2.2",
-    "pillow>=12.1.1",
-    "pyinstaller>=6.19.0",
-    "pymupdf>=1.27.2",
+    "pillow>=12.2.0",
+    "pyinstaller>=6.20.0",
+    "pymupdf>=1.27.2.3",
     "pystray>=0.19.5",
     "rapidocr-onnxruntime>=1.4.4",
-    "requests>=2.32.5",
+    "requests>=2.34.2",
     "watchdog>=6.0.0",
 ]
